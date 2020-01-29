@@ -12,8 +12,8 @@ from collections import defaultdict
 2. Trade using mean-reversion
 """
 stocks_to_trade = 20
-short_term_window = 10  # Days to use in short-term beta calculation
-long_term_window = 30  # Days to use in long-term beta calculation
+short_term_window = 30  # Days to use in short-term beta calculation
+long_term_window = 180  # Days to use in long-term beta calculation
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
 
 
@@ -95,12 +95,12 @@ def get_ratings(algo_time, stocks_to_trade=stocks_to_trade):
     return ratings[:stocks_to_trade]
 
 
-def get_shares_to_buy(ratings_df, portfolio, portfolio_alloc=1):
+def get_shares_to_buy(ratings_df, cash, portfolio_alloc=1):
     total_rating = ratings_df['rating'].sum()
     shares_dict = {}
     for _, row in ratings_df.iterrows():
         prc_to_alloc = row['rating'] / total_rating * portfolio_alloc
-        amount = prc_to_alloc * portfolio
+        amount = prc_to_alloc * cash
         shares = int(amount / row['price'])
         shares_dict[row['symbol']] = shares
 
@@ -109,7 +109,7 @@ def get_shares_to_buy(ratings_df, portfolio, portfolio_alloc=1):
 
 def live_trade(api, portfolio_alloc):
     # Read in previously calculated ratings df
-    ratings = pd.read_csv('ratings')
+    ratings = pd.read_pickle('ratings.pkl')
 
     # Get updated barset for rated stocks
     daily_barset = api.get_barset(
@@ -177,29 +177,24 @@ def api_format(dt):
     return dt.strftime(api_time_format)
 
 
-# Used while backtesting to find out how much our portfolio would have been
-# worth the day after we bought it.
-def get_value_of_assets(api, shares_bought, on_date):
-    if len(shares_bought.keys()) == 0:
-        return 0
-
-    total_value = 0
-    formatted_date = api_format(on_date)
+def calc_portfolio_val(api, cash, shares):
     barset = api.get_barset(
-        symbols=shares_bought.keys(),
+        symbols=shares.keys(),
         timeframe='day',
-        limit=1,
-        end=formatted_date
+        limit=3,
     )
-    for symbol in shares_bought:
-        total_value += shares_bought[symbol] * barset[symbol][0].o
+    portfolio_value = 0
+    for symbol, data in barset.items():
+        portfolio_value += data[-1].c * shares[symbol]
+    portfolio_value += cash
 
-    return total_value
+    return portfolio_value
 
-
-def backtest(api, testing_days, starting_funds):
+def backtest(api, testing_days, starting_funds, backtest_name=''):
     cash = starting_funds
     shares = defaultdict(int)
+    portfolio = pd.DataFrame(columns=['cash', 'symbol', 'qty', 'price', 'portfolio_value'])
+    backtest_bars = pd.DataFrame(columns=['open', 'close', 'low', 'high'])
 
     # Set backtesting timeframe
     now = datetime.now(timezone('EST'))
@@ -236,8 +231,26 @@ def backtest(api, testing_days, starting_funds):
                 while bars[-1].c == np.nan:
                     bars = bars[:-1]
                 ratings.loc[ratings['symbol'] == symbol, 'price'] = bars[-1].c
+                backtest_bars = backtest_bars.append(
+                    pd.Series(
+                        {'open': bars[-1].o,
+                         'close': bars[-1].c,
+                         'low': bars[-1].l,
+                         'high': bars[-1].h},
+                        name=(symbol, end_datetime)
+                    )
+                )
             else:
                 ratings.loc[ratings['symbol'] == symbol, 'price'] = daily_barset[symbol][-1].c
+                backtest_bars = backtest_bars.append(
+                    pd.Series(
+                        {'open': daily_barset[symbol].o,
+                         'close': daily_barset[symbol].c,
+                         'low': daily_barset[symbol].l,
+                         'high': daily_barset[symbol].h},
+                        name=(symbol, end_datetime)
+                    )
+                )
 
         # Calculate the number of each share to buy
         shares_to_buy = get_shares_to_buy(ratings, cash)
@@ -253,27 +266,36 @@ def backtest(api, testing_days, starting_funds):
             if current_price > long_term_mean + std_dev and shares[symbol] >= 0:
                 shares[symbol] = -n_shares
                 cash += n_shares * current_price
+                portfolio = portfolio.append(
+                    {'cash': cash,
+                     'symbol': symbol,
+                     'qty': -n_shares,
+                     'price': current_price,
+                     'portfolio_value': calc_portfolio_val(api, cash, shares),
+                     'time': end_datetime},
+                    ignore_index=True
+                )
             elif current_price < long_term_mean - std_dev and shares[symbol] <= 0:
                 shares[symbol] = n_shares
                 cash -= n_shares * current_price
+                portfolio = portfolio.append(
+                    {'cash': cash,
+                     'symbol': symbol,
+                     'qty': n_shares,
+                     'price': current_price,
+                     'portfolio_value': calc_portfolio_val(api, cash, shares),
+                     'time': end_datetime},
+                    ignore_index=True
+                )
             else:
                 pass
 
     # Backtest results
-
-    final_barset = api.get_barset(
-        symbols=shares.keys(),
-        timeframe='day',
-        limit=3,
-    )
-    portfolio_value = 0
-    for symbol, data in final_barset.items():
-        portfolio_value += data[-1].c * shares[symbol]
-    portfolio_value += cash
+    final_portfolio_value = calc_portfolio_val(api, cash, shares)
     print(f'Cash: {cash}')
     print(f'Positions: {shares}')
-    print(f'Equity: {portfolio_value}')
-    print(f'Return: {(portfolio_value / starting_funds - 1) * 100}%')
+    print(f'Equity: {final_portfolio_value}')
+    print(f'Return: {(final_portfolio_value / starting_funds - 1) * 100}%')
 
     # Print market (S&P500) return for the time period
     sp500_bars = api.get_barset(
@@ -287,7 +309,14 @@ def backtest(api, testing_days, starting_funds):
         sp500_change * 100)
     )
 
-    return portfolio_value
+    # Save backtest data
+    portfolio.to_pickle(backtest_name+'portfolio.pkl')
+    index = list(backtest_bars.index)
+    backtest_bars.index = pd.MultiIndex.from_tuples(index, names=['symbol', 'time'])
+    backtest_bars.to_pickle(backtest_name+'bars.pkl')
+    ratings.to_pickle(backtest_name+'ratings.pkl')
+
+    return final_portfolio_value
 
 if __name__ == '__main__':
     api = tradeapi.REST()
@@ -299,13 +328,18 @@ if __name__ == '__main__':
             # Run a backtesting session using the provided parameters
             starting_funds = float(sys.argv[2])
             testing_days = int(sys.argv[3])
-            portfolio_value = backtest(api, testing_days, starting_funds)
+
+            if len(sys.argv) > 4:
+                backtest_name = str(sys.argv[4])
+            else:
+                backtest_name = ''
+            portfolio_value = backtest(api, testing_days, starting_funds, backtest_name)
             portfolio_change = (portfolio_value - starting_funds) / starting_funds
             print('Portfolio change: {:.4f}%'.format(portfolio_change*100))
         elif sys.argv[1] == 'rerank':
             # Rerank
             ratings = get_ratings(algo_time=None)
-            ratings.to_csv('ratings')
+            ratings.to_pickle('ratings')
             # Cancel outstanding orders and close all positions
             api.cancel_all_orders()
             api.close_all_positions()
