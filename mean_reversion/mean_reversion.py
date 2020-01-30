@@ -12,8 +12,9 @@ from collections import defaultdict
 2. Trade using mean-reversion
 """
 stocks_to_trade = 20
-short_term_window = 30  # Days to use in short-term beta calculation
-long_term_window = 180  # Days to use in long-term beta calculation
+short_term_beta_window = 30  # Days to use in short-term beta calculation
+long_term_beta_window = 90  # Days to use in long-term beta calculation
+mean_window = 30            # Used to calc rolling price mean
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
 
 
@@ -40,7 +41,7 @@ def get_ratings(algo_time, stocks_to_trade=stocks_to_trade):
     SPY_bars = api.get_barset(
         symbols=['SPY'],
         timeframe='day',
-        limit=long_term_window,
+        limit=long_term_beta_window,
         end=formatted_time
     )['SPY']
 
@@ -53,13 +54,13 @@ def get_ratings(algo_time, stocks_to_trade=stocks_to_trade):
         barset = api.get_barset(
             symbols=symbol_batch,
             timeframe='day',
-            limit=long_term_window,
+            limit=long_term_beta_window,
             end=formatted_time
         )
 
         for symbol in symbol_batch:
             bars = barset[symbol]
-            if len(bars) == long_term_window:
+            if len(bars) == long_term_beta_window:
                 # Make sure the most recent data isn't missing
                 latest_bar = bars[-1].t.to_pydatetime().astimezone(timezone('EST'))
                 gap_from_present = algo_time - latest_bar
@@ -74,8 +75,8 @@ def get_ratings(algo_time, stocks_to_trade=stocks_to_trade):
                     bars=closing_prices,
                     benchmark_bars=closing_SPY,
                 )
-                short_term_closing_prices = list(map(lambda x: x.c, bars[-short_term_window:]))
-                short_term_closing_SPY = list(map(lambda x: x.c, SPY_bars[-short_term_window:]))
+                short_term_closing_prices = list(map(lambda x: x.c, bars[-short_term_beta_window:]))
+                short_term_closing_SPY = list(map(lambda x: x.c, SPY_bars[-short_term_beta_window:]))
                 short_term_beta = calc_beta(
                     bars=short_term_closing_prices,
                     benchmark_bars=short_term_closing_SPY
@@ -115,7 +116,7 @@ def live_trade(api, portfolio_alloc):
     daily_barset = api.get_barset(
         symbols=ratings['symbol'],
         timeframe='day',
-        limit=long_term_window,
+        limit=mean_window,
         end=None
     )
     current_bars = api.get_barset(
@@ -190,11 +191,12 @@ def calc_portfolio_val(api, cash, shares):
 
     return portfolio_value
 
+
 def backtest(api, testing_days, starting_funds, backtest_name=''):
     cash = starting_funds
     shares = defaultdict(int)
     portfolio = pd.DataFrame(columns=['cash', 'symbol', 'qty', 'price', 'portfolio_value'])
-    backtest_bars = pd.DataFrame(columns=['open', 'close', 'low', 'high'])
+    backtest_bars = pd.DataFrame(columns=['open', 'close', 'low', 'high', 'lt_mean'])
 
     # Set backtesting timeframe
     now = datetime.now(timezone('EST'))
@@ -215,7 +217,7 @@ def backtest(api, testing_days, starting_funds, backtest_name=''):
         daily_barset = api.get_barset(
             symbols=ratings['symbol'],
             timeframe='day',
-            limit=long_term_window,
+            limit=mean_window,
             end=formatted_end
         )
         current_bars = api.get_barset(
@@ -231,6 +233,8 @@ def backtest(api, testing_days, starting_funds, backtest_name=''):
                 while bars[-1].c == np.nan:
                     bars = bars[:-1]
                 ratings.loc[ratings['symbol'] == symbol, 'price'] = bars[-1].c
+
+                name = (symbol, end_datetime)
                 backtest_bars = backtest_bars.append(
                     pd.Series(
                         {'open': bars[-1].o,
@@ -242,12 +246,13 @@ def backtest(api, testing_days, starting_funds, backtest_name=''):
                 )
             else:
                 ratings.loc[ratings['symbol'] == symbol, 'price'] = daily_barset[symbol][-1].c
+                name = (symbol, end_datetime)
                 backtest_bars = backtest_bars.append(
                     pd.Series(
-                        {'open': daily_barset[symbol].o,
-                         'close': daily_barset[symbol].c,
-                         'low': daily_barset[symbol].l,
-                         'high': daily_barset[symbol].h},
+                        {'open': daily_barset[symbol][-1].o,
+                         'close': daily_barset[symbol][-1].c,
+                         'low': daily_barset[symbol][-1].l,
+                         'high': daily_barset[symbol][-1].h},
                         name=(symbol, end_datetime)
                     )
                 )
@@ -260,6 +265,9 @@ def backtest(api, testing_days, starting_funds, backtest_name=''):
             bars = daily_barset[symbol]
             closing_prices = list(map(lambda x: x.c, bars))
             long_term_mean = np.mean(closing_prices)
+            # Record long term mean for this trade
+            backtest_bars.at[(symbol, name[1]), 'lt_mean'] = long_term_mean
+
             current_price = ratings.loc[ratings['symbol'] == symbol].iloc[0]['price']
             std_dev = np.std(closing_prices)
 
@@ -311,9 +319,11 @@ def backtest(api, testing_days, starting_funds, backtest_name=''):
 
     # Save backtest data
     portfolio.to_pickle(backtest_name+'portfolio.pkl')
+
     index = list(backtest_bars.index)
     backtest_bars.index = pd.MultiIndex.from_tuples(index, names=['symbol', 'time'])
     backtest_bars.to_pickle(backtest_name+'bars.pkl')
+
     ratings.to_pickle(backtest_name+'ratings.pkl')
 
     return final_portfolio_value
@@ -353,4 +363,3 @@ if __name__ == '__main__':
             live_trade(api, portfolio_alloc)
         else:
             print('Error: Unrecognized command ' + sys.argv[1])
-
