@@ -14,7 +14,7 @@ from collections import defaultdict
 stocks_to_trade = 20
 short_term_beta_window = 30  # Days to use in short-term beta calculation
 long_term_beta_window = 90  # Days to use in long-term beta calculation
-mean_window = 30            # Used to calc rolling price mean
+mean_window = 10            # Used to calc rolling price mean
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
 
 
@@ -140,12 +140,12 @@ def live_trade(api, portfolio_alloc):
     shares_to_buy = get_shares_to_buy(ratings, cash, portfolio_alloc)
 
     # Mean reversion logic
-    for symbol, shares in shares_to_buy.keys():
+    for symbol, n_shares in shares_to_buy.keys():
         bars = daily_barset[symbol]
         closing_prices = list(map(lambda x: x.c, bars))
-        long_term_mean = np.mean(closing_prices)
+        long_term_mean = np.nanmean(closing_prices)
         current_price = ratings.loc[ratings['symbol'] == symbol].iloc[0]['price']
-        std_dev = np.std(closing_prices)
+        std_dev = np.nanstd(closing_prices)
 
         current_position = None
         try:
@@ -156,7 +156,7 @@ def live_trade(api, portfolio_alloc):
         if current_price > long_term_mean + std_dev and current_position != 'short':
             api.submit_order(
                 symbol=symbol,
-                qty=shares,
+                qty=n_shares,
                 side='sell',
                 type='market',
                 time_in_force='day'
@@ -164,7 +164,7 @@ def live_trade(api, portfolio_alloc):
         elif current_price < long_term_mean - std_dev and current_position != 'long':
             api.submit_order(
                 symbol=symbol,
-                qty=shares,
+                qty=n_shares,
                 side='buy',
                 type='market',
                 time_in_force='day'
@@ -264,7 +264,7 @@ def backtest(api, testing_days, starting_funds, backtest_name=''):
         for symbol, n_shares in shares_to_buy.items():
             bars = daily_barset[symbol]
             closing_prices = list(map(lambda x: x.c, bars))
-            long_term_mean = np.mean(closing_prices)
+            long_term_mean = np.nanmean(closing_prices)
             # Record long term mean for this trade
             backtest_bars.at[(symbol, name[1]), 'lt_mean'] = long_term_mean
 
@@ -349,17 +349,17 @@ if __name__ == '__main__':
         elif sys.argv[1] == 'rerank':
             # Rerank
             ratings = get_ratings(algo_time=None)
-            ratings.to_pickle('ratings')
+            ratings.to_pickle('ratings.pkl')
             # Cancel outstanding orders and close all positions
             api.cancel_all_orders()
             api.close_all_positions()
-        elif sys.argv[1] == 'run':
+        elif sys.argv[1] == 'live':
             portfolio_alloc = sys.argv[2]
             if isinstance(portfolio_alloc, float):
                 if portfolio_alloc < 0 or portfolio_alloc > 1:
                     portfolio_alloc = 1
             else:
-                print(f'Error: Value should be between 0-1, got {portfolio_alloc}')
+                print(f'Error: Value should be between (0-1], got {portfolio_alloc}')
             live_trade(api, portfolio_alloc)
         else:
             print('Error: Unrecognized command ' + sys.argv[1])
