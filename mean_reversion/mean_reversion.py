@@ -154,8 +154,7 @@ def live_trade(api, portfolio_alloc):
         current_position = None
         try:
             current_position = api.get_position(symbol).side
-        except Exception as e:
-            print(e)
+        except:
             pass
 
         if current_price > long_term_mean + std_dev and current_position != 'short':
