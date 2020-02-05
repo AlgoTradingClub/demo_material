@@ -111,10 +111,7 @@ def get_shares_to_buy(ratings_df, cash, portfolio_alloc=1):
     return shares_dict
 
 
-def live_trade(api, portfolio_alloc):
-    # Read in previously calculated ratings df
-    ratings = pd.read_pickle('ratings.pkl')
-
+def live_trade(api, portfolio_alloc, ratings):
     # Get updated barset for rated stocks
     daily_barset = api.get_barset(
         symbols=ratings['symbol'],
@@ -334,11 +331,16 @@ def backtest(api, testing_days, starting_funds, backtest_name=''):
 
     return final_portfolio_value
 
+
 if __name__ == '__main__':
     api = tradeapi.REST()
 
     if len(sys.argv) < 2:
-        print('Error: please specify a command; either "run" or "backtest <cash balance> <number of days to test>".')
+        print('Error: please specify a command;')
+        print('Options:')
+        print('backtest <cash balance> <number of days to test> <optional: path to save backtest results>')
+        print('live <percent of portfolio to allocate> <stock rating path>')
+        print('rerank <path to save stock rating data>')
     else:
         if sys.argv[1] == 'backtest':
             # Run a backtesting session using the provided parameters
@@ -352,23 +354,30 @@ if __name__ == '__main__':
             portfolio_value = backtest(api, testing_days, starting_funds, backtest_name)
             portfolio_change = (portfolio_value - starting_funds) / starting_funds
             print('Portfolio change: {:.4f}%'.format(portfolio_change*100))
+
         elif sys.argv[1] == 'rerank':
             # Rerank
+            ratings_f_name = sys.argv[2]
             ratings = get_ratings(algo_time=None)
-            ratings.to_pickle('ratings.pkl')
+            ratings.to_pickle(ratings_f_name)
+
             # Cancel outstanding orders and close all positions
             api.cancel_all_orders()
             api.close_all_positions()
+
         elif sys.argv[1] == 'live':
-            arg = sys.argv[2]
+            portfolio_alloc = sys.argv[2]
             try:
-                portfolio_alloc = float(arg)
+                portfolio_alloc = float(portfolio_alloc)
             except Exception as e:
                 print(e)
                 print(f'Error: Value should be between (0-1], got {portfolio_alloc}')
 
             if portfolio_alloc <= 0 or portfolio_alloc > 1:
                 portfolio_alloc = 1
-            live_trade(api, portfolio_alloc)
+
+            ratings_f_name = sys.argv[3]
+            ratings = pd.read_pickle(ratings_f_name)
+            live_trade(api, portfolio_alloc, ratings=ratings)
         else:
             print('Error: Unrecognized command ' + sys.argv[1])
