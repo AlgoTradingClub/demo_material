@@ -2,10 +2,13 @@ import alpaca_trade_api as tradeapi
 import numpy as np
 import pandas as pd
 import sys
+import logging
 
 from datetime import datetime, timedelta
 from pytz import timezone
 from collections import defaultdict
+
+logging.basicConfig(filename='mean_reversion.log', level=logging.INFO)
 
 """
 1. Select stocks with high short-term beta and low long-term beta
@@ -28,7 +31,7 @@ def calc_beta(bars, benchmark_bars):
 
 def get_ratings(algo_time, stocks_to_trade=stocks_to_trade):
     assets = api.list_assets()
-    assets = [asset for asset in assets if asset.tradable]
+    assets = [asset for asset in assets if asset.tradable and asset.shortable]
     ratings = pd.DataFrame(columns=['symbol', 'rating', 'price'])
     index = 0
     batch_size = 200    # Max number of stocks per api request
@@ -63,7 +66,7 @@ def get_ratings(algo_time, stocks_to_trade=stocks_to_trade):
             if len(bars) == long_term_beta_window:
                 # Make sure the most recent data isn't missing
                 latest_bar = bars[-1].t.to_pydatetime().astimezone(timezone('EST'))
-                gap_from_present = algo_time - latest_bar
+                #gap_from_present = algo_time - latest_bar
                 # if gap_from_present.days > 1:
                 #     continue
 
@@ -136,21 +139,23 @@ def live_trade(api, portfolio_alloc):
             ratings.loc[ratings['symbol'] == symbol, 'price'] = np.nan
 
     # Calculate the number of each share to buy
-    cash = api.get_account().cash
+    cash = float(api.get_account().cash)
     shares_to_buy = get_shares_to_buy(ratings, cash, portfolio_alloc)
 
     # Mean reversion logic
-    for symbol, n_shares in shares_to_buy.keys():
+    for symbol, n_shares in shares_to_buy.items():
         bars = daily_barset[symbol]
         closing_prices = list(map(lambda x: x.c, bars))
         long_term_mean = np.nanmean(closing_prices)
         current_price = ratings.loc[ratings['symbol'] == symbol].iloc[0]['price']
         std_dev = np.nanstd(closing_prices)
 
+        # TODO: check that no order is made when a pending order for the same symbol exists
         current_position = None
         try:
             current_position = api.get_position(symbol).side
-        except:
+        except Exception as e:
+            print(e)
             pass
 
         if current_price > long_term_mean + std_dev and current_position != 'short':
@@ -161,6 +166,7 @@ def live_trade(api, portfolio_alloc):
                 type='market',
                 time_in_force='day'
             )
+            logging.info(f'Sell order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
         elif current_price < long_term_mean - std_dev and current_position != 'long':
             api.submit_order(
                 symbol=symbol,
@@ -169,6 +175,7 @@ def live_trade(api, portfolio_alloc):
                 type='market',
                 time_in_force='day'
             )
+            logging.info(f'Buy order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
         else:
             pass
 
@@ -354,12 +361,15 @@ if __name__ == '__main__':
             api.cancel_all_orders()
             api.close_all_positions()
         elif sys.argv[1] == 'live':
-            portfolio_alloc = sys.argv[2]
-            if isinstance(portfolio_alloc, float):
-                if portfolio_alloc < 0 or portfolio_alloc > 1:
-                    portfolio_alloc = 1
-            else:
+            arg = sys.argv[2]
+            try:
+                portfolio_alloc = float(arg)
+            except Exception as e:
+                print(e)
                 print(f'Error: Value should be between (0-1], got {portfolio_alloc}')
+
+            if portfolio_alloc <= 0 or portfolio_alloc > 1:
+                portfolio_alloc = 1
             live_trade(api, portfolio_alloc)
         else:
             print('Error: Unrecognized command ' + sys.argv[1])
