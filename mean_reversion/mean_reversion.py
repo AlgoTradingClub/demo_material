@@ -20,7 +20,10 @@ long_term_beta_window = 90  # Days to use in long-term beta calculation
 mean_window = 10            # Used to calc rolling price mean
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
 
+# TODO: add RSI and Bollinger band squeeze logic
+# TODO: add additional rating metric (%diff from long-term mean?)
 
+# TODO: change to calc just variance instead
 def calc_beta(bars, benchmark_bars):
     cov = np.cov(bars, benchmark_bars)[0][1]
     var = np.var(benchmark_bars)
