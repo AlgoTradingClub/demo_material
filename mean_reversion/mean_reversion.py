@@ -158,23 +158,30 @@ def live_trade(api, portfolio_alloc, ratings):
             pass
 
         if current_price > long_term_mean + std_dev and current_position != 'short':
-            api.submit_order(
-                symbol=symbol,
-                qty=n_shares,
-                side='sell',
-                type='market',
-                time_in_force='day'
-            )
-            logging.info(f'Sell order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
+            try:
+                api.submit_order(
+                    symbol=symbol,
+                    qty=n_shares,
+                    side='sell',
+                    type='market',
+                    time_in_force='day'
+                )
+                logging.info(f'Sell order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
+            except tradeapi.rest.APIError as err:
+                logging.error(err)
+
         elif current_price < long_term_mean - std_dev and current_position != 'long':
-            api.submit_order(
-                symbol=symbol,
-                qty=n_shares,
-                side='buy',
-                type='market',
-                time_in_force='day'
-            )
-            logging.info(f'Buy order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
+            try:
+                api.submit_order(
+                    symbol=symbol,
+                    qty=n_shares,
+                    side='buy',
+                    type='market',
+                    time_in_force='day'
+                )
+                logging.info(f'Buy order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
+            except tradeapi.rest.APIError as err:
+                logging.error(err)
         else:
             pass
 
@@ -342,7 +349,7 @@ if __name__ == '__main__':
         print('Error: please specify a command;')
         print('Options:')
         print('backtest <cash balance> <number of days to test> <optional: path to save backtest results>')
-        print('live <percent of portfolio to allocate> <stock rating path>')
+        print('live <percent of portfolio to allocate ex. 1 for 100%> <stock rating path>')
         print('rerank <path to save stock rating data>')
     else:
         if sys.argv[1] == 'backtest':
