@@ -20,8 +20,6 @@ long_term_beta_window = 90  # Days to use in long-term beta calculation
 mean_window = 10            # Used to calc rolling price mean
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
 
-# TODO: add RSI and Bollinger band squeeze logic
-# TODO: add additional rating metric (%diff from long-term mean?)
 
 # TODO: change to calc just variance instead
 def calc_beta(bars, benchmark_bars):
@@ -167,7 +165,7 @@ def live_trade(api, portfolio_alloc, ratings):
                     time_in_force='day'
                 )
                 logging.info(f'Sell order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
-            except tradeapi.rest.APIError as err:
+            except Exception as err:
                 logging.error(err)
 
         elif current_price < long_term_mean - std_dev and current_position != 'long':
@@ -180,7 +178,7 @@ def live_trade(api, portfolio_alloc, ratings):
                     time_in_force='day'
                 )
                 logging.info(f'Buy order submitted for {n_shares} of {symbol} at {current_price} on {datetime.now(timezone("EST"))}')
-            except tradeapi.rest.APIError as err:
+            except Exception as err:
                 logging.error(err)
         else:
             pass
