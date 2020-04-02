@@ -33,7 +33,7 @@ Returns the conintegration value of the two time-series data sets
 Slower operation than correlation
 '''
 def cointegrated(stock1, stock2) -> float:
-    return ts.coint(stock1, stock2)
+    return ts.coint(stock1, stock2)[1]
 
 
 def calc_beta(bars, benchmark_bars):
@@ -101,45 +101,50 @@ def find_all_pairs(limit=-1, coint_value=0.01, coor_value=0.85, short_term_beta_
         index += batch_size
 
     # now all closing price data is saved and ready to be further analyzed
-    # TODO rename a and b into something better
-    for a in all_bars:
-        for b in all_bars:
-            if a != b:  # don't compare a stock against itself
-                print(f"{a}: len-> {len(all_bars[a])}, {b}: len-> {len(all_bars[b])}")
-                if correlated(all_bars[a], all_bars[b]) > coor_value:
-                    cointegration_value = cointegrated(all_bars[a], all_bars[b])
-                    if cointegration_value < coint_value:  # its cointegrated!!
+    for i in range(len(assets)):
+        for j in range(i + 1, len(assets)):
+            symbol1 = assets[i].symbol
+            symbol2 = assets[j].symbol
+            data1 = all_bars[symbol1]
+            data2 = all_bars[symbol2]
+            '''
+            Coor is a less expensive function than coint. By filtering through coor first, 
+            it is around 3x faster
+            sometimes Polygon gives partial data that isn't the same length
+            '''
+            if len(data1) == len(data2) and correlated(data1, data2) > coor_value:
+                cointegration_value = cointegrated(data1, data2)
+                if cointegration_value < coint_value:  # its cointegrated!!
 
-                        long_term_beta_a = calc_beta(
-                                    bars=all_bars[a],
-                                    benchmark_bars=closing_spy,
-                                )
-                        short_term_beta_a = calc_beta(
-                            bars= all_bars[a][-short_term_beta_window:],
-                            benchmark_bars=short_term_closing_spy
-                        )
-                        rating_a = short_term_beta_a / long_term_beta_a
+                    long_term_beta_a = calc_beta(
+                                bars=data1,
+                                benchmark_bars=closing_spy,
+                            )
+                    short_term_beta_a = calc_beta(
+                        bars= data1[-short_term_beta_window:],
+                        benchmark_bars=short_term_closing_spy
+                    )
+                    rating_a = short_term_beta_a / long_term_beta_a
 
-                        long_term_beta_b = calc_beta(
-                            bars=all_bars[b],
-                            benchmark_bars=closing_spy,
-                        )
-                        short_term_beta_b = calc_beta(
-                            bars=all_bars[b][-short_term_beta_window:],
-                            benchmark_bars=short_term_closing_spy
-                        )
-                        rating_b = short_term_beta_b / long_term_beta_b
+                    long_term_beta_b = calc_beta(
+                        bars=data2,
+                        benchmark_bars=closing_spy,
+                    )
+                    short_term_beta_b = calc_beta(
+                        bars=data2[-short_term_beta_window:],
+                        benchmark_bars=short_term_closing_spy
+                    )
+                    rating_b = short_term_beta_b / long_term_beta_b
 
-                        ratings = ratings.append({
-                                        'Symbol_1': a,
-                                        'Symbol_2': b,
-                                        'Coint_Rating': cointegration_value,
-                                        'Price Symbol_1': all_bars[a][-1].c,
-                                        'Price Symbol_2': all_bars[b][-1].c,
-                                        'Symbol_1 Beta Rating': rating_a,
-                                        'Symbol_2 Beta Rating': rating_b
-                                    }, ignore_index=True)
-
+                    ratings = ratings.append({
+                                    'Symbol_1': symbol1,
+                                    'Symbol_2': symbol2,
+                                    'Coint_Rating': cointegration_value,
+                                    'Price Symbol_1': data1[-1],
+                                    'Price Symbol_2': data2[-1],
+                                    'Symbol_1 Beta Rating': rating_a,
+                                    'Symbol_2 Beta Rating': rating_b
+                                }, ignore_index=True)
 
             # if len(bars) == long_term_beta_window:
             #
@@ -167,10 +172,8 @@ def find_all_pairs(limit=-1, coint_value=0.01, coor_value=0.85, short_term_beta_
 
     ratings = ratings.sort_values('Coint_Rating', ascending=True)
     ratings = ratings.reset_index(drop=True)
-
     results_dir = path.Path.joinpath(path.Path.cwd(), "pairs_trading", "results")
     with open(f"pairs_results_{datetime.date.today()}.csv", "w+") as f:
         f.write(ratings.to_csv())
-
 
 find_all_pairs(200)
