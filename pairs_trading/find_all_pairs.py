@@ -5,11 +5,12 @@ import alpaca_trade_api as tradeapi
 import pandas as pd
 import datetime
 import os
+import time
 
 
 '''
 Run from directory "pairs_trading" 
-To analyze all tradable and shortable stocks would take around 10 minutes
+As it stands, to analyze all 3983 tradable/shortable stocks against one another, it would take 27,000 years
 '''
 
 '''
@@ -52,7 +53,7 @@ Finds all cointegrated stocks within a threshold.
 Returns cointegrated pairs with their coint value and short and long-term beat value
 if limit == -1, will calculate all available stocks.
 '''
-def find_all_pairs(limit=-1, coint_value=0.01, coor_value=0.85, short_term_window=30, long_term_window=90):
+def find_all_pairs(limit=-1, coint_value=0.005, coor_value=0.90, short_term_window=30, long_term_window=90):
     # starts connection with Alpaca
     key_id = os.environ['APCA_API_KEY_ID']
     secret_key = os.environ['APCA_API_SECRET_KEY']
@@ -81,7 +82,7 @@ def find_all_pairs(limit=-1, coint_value=0.01, coor_value=0.85, short_term_windo
 
     # Used for finding stocks' betas scores
     long_term_spy = list(map(lambda x: x.c, SPY_bars))
-    short_term_spy = list(map(lambda x: x.c, SPY_bars[-short_term_window:]))
+    short_term_spy = long_term_spy[-short_term_window:]
 
     # all the stock data
     all_bars = dict()
@@ -106,21 +107,32 @@ def find_all_pairs(limit=-1, coint_value=0.01, coor_value=0.85, short_term_windo
             all_bars[symbol] = closing_prices
 
         index += batch_size
+    print("All Data gathered.\nBeginning cointegration analysis...")
     start = time.time()
+    comparison_count = 0
+    calculation_count = 0
+
     # now all closing price data is saved and ready to be further analyzed
     for i in range(len(assets)):
+
+        if i % 100 == 0:
+            print(f"{i} done out of {len(assets)}")
+
+        symbol1 = assets[i].symbol
+        data1 = all_bars[symbol1]
+
         for j in range(i + 1, len(assets)):
-            symbol1 = assets[i].symbol
             symbol2 = assets[j].symbol
-            data1 = all_bars[symbol1]
             data2 = all_bars[symbol2]
             '''
             Coor is a less expensive function than coint. By filtering through coor first, 
             it is around 3x faster
             Sometimes Polygon gives partial data that isn't the same length
             '''
+            comparison_count += 1
             if len(data1) == len(data2) and correlated(data1, data2) > coor_value:
                 cointegration_value = cointegrated(data1, data2)
+                calculation_count += 1
                 if cointegration_value < coint_value:  # its cointegrated!!
 
                     # gets the beta ratings for both stocks if not saved
@@ -159,9 +171,11 @@ def find_all_pairs(limit=-1, coint_value=0.01, coor_value=0.85, short_term_windo
     with open(results_dir, "w+") as f:
         f.write(ratings.to_csv())
 
+    print(f"Cointegration Analysis Complete.\n Writing to {results_dir}.")
+    print(f"Comparisions made: {comparison_count}\nCalculations done: {calculation_count}")
     print(f"time {time.time() - start}")
 
-import time
-find_all_pairs(200)
+
+find_all_pairs()
 # TODO remove this function call from the main scope for later use
 
