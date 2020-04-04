@@ -10,7 +10,8 @@ import time
 
 '''
 Run from directory "pairs_trading" 
-As it stands, to analyze all 3983 tradable/shortable stocks against one another, it would take 27,000 years
+As it stands, to analyze all 3983 tradable/shortable stocks against one another, it would take around 6 hours CPU time
+
 '''
 
 '''
@@ -104,26 +105,43 @@ def find_all_pairs(limit=-1, coint_value=0.005, coor_value=0.90, short_term_wind
         for symbol in symbol_batch:
             bars = barset[symbol]
             closing_prices = list(map(lambda x: x.c, bars))
-            all_bars[symbol] = closing_prices
+
+            # reduce the number of symbols to compare by eliminating stocks based on closing price
+            if MIN_CLOSING_PRICE < closing_prices[-1] < MAX_CLOSING_PRICE:
+                all_bars[symbol] = closing_prices
 
         index += batch_size
+
+    print(f"len of all bars {len(all_bars)}")
     print("All Data gathered.\nBeginning cointegration analysis...")
     start = time.time()
     comparison_count = 0
     calculation_count = 0
 
+# TODO base the for loops on all bars so it doesnt waste time with the try catch blocks
+# TODO do this by doing for item in all_bars. then have a set called completed so that
+# TODO lower foreach loop doesn't redo previous calculations
+
     # now all closing price data is saved and ready to be further analyzed
     for i in range(len(assets)):
+        if i % 10 == 0:
+            print(f"i {i} done out of {len(assets)}")
 
-        if i % 100 == 0:
-            print(f"{i} done out of {len(assets)}")
-
-        symbol1 = assets[i].symbol
-        data1 = all_bars[symbol1]
+        try:
+            symbol1 = assets[i].symbol
+            data1 = all_bars[symbol1]
+        except KeyError:
+            continue
 
         for j in range(i + 1, len(assets)):
-            symbol2 = assets[j].symbol
-            data2 = all_bars[symbol2]
+
+            # some things were taken out by filtering closing pricing, this avoids non existing items in assests
+            try:
+                symbol2 = assets[j].symbol
+                data2 = all_bars[symbol2]
+            except KeyError:
+                continue
+
             '''
             Coor is a less expensive function than coint. By filtering through coor first, 
             it is around 3x faster
@@ -176,6 +194,10 @@ def find_all_pairs(limit=-1, coint_value=0.005, coor_value=0.90, short_term_wind
     print(f"time {time.time() - start}")
 
 
+# using MAX of 30 and MIN of 1 reducing total from 3988 to 2633, runtime = 4 hours
+MAX_CLOSING_PRICE = 30.0
+MIN_CLOSING_PRICE = 1.0
 find_all_pairs()
 # TODO remove this function call from the main scope for later use
 
+# i = 30
