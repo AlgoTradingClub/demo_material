@@ -49,6 +49,11 @@ def calc_beta(bars, benchmark_bars):
     return beta
 
 
+# checks pairs in current_pairs.txt to recheck cointegration
+def recalculate_current_pairs():
+    pass
+
+
 '''
 Finds all cointegrated stocks within a threshold.
 Returns cointegrated pairs with their coint value and short and long-term beat value
@@ -194,7 +199,7 @@ def find_all_pairs(limit=-1, coint_value=0.005, coor_value=0.90, short_term_wind
     print(f"time {time.time() - start}")
 
 
-# using MAX of 30 and MIN of 1 reducing total from 3988 to 2633, runtime = 4 hours
+# using MAX of 30 and MIN of 1 reducing total from 3988 to 2633, runtime = 2.5 hours
 MAX_CLOSING_PRICE = 30.0
 MIN_CLOSING_PRICE = 1.0
 find_all_pairs()

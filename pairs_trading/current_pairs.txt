@@ -1,3 +1,7 @@
-AAPL MSFT .8
-AAPL NVDA 40
-TSLA GM 20
+#, Equity allocation is the percentage of the total money in the account that should be traded in the stock pair
+#,Symbol1,Symbol2,Equity_Allocation,
+AAPL,MSFT,
+AAPL,NVDA,40
+TSLA,GM,20
+BCEI,OXY,30
+TAN,AUTL,
