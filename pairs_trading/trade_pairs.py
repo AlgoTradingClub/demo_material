@@ -10,7 +10,6 @@ key_id = os.environ['APCA_API_KEY_ID']
 secret_key = os.environ['APCA_API_SECRET_KEY']
 api = tradeapi.REST(key_id, secret_key)
 
-
 '''
 How to Run:
 Given Algo sets of ticker pairs with total equity amount that each pair can trade with
@@ -43,8 +42,11 @@ def trade_pairs(pairs: list, total_available_equity_limit=None) -> None:
     pair_positions = get_pairs_position(pairs, data)
 
 
-# returns the calculated pair positions
-# Symbol1, Symbol2, SymbolToLong
+
+'''
+returns the calculated pair positions
+[{'short':Symbol, 'long',Symbol, 'amount': equity}, {'short':Symbol, 'long',Symbol}]
+'''
 def get_pairs_position(pairs, data: dict, average_window=5, wide_spread=1.1, tight_spread=0.9):
     pair_positions = []
     for pair in pairs:
@@ -52,20 +54,33 @@ def get_pairs_position(pairs, data: dict, average_window=5, wide_spread=1.1, tig
         symbol2 = pair[1]
         average1 = np.mean(data[symbol1][-average_window:])
         average2 = np.mean(data[symbol2][-average_window:])
-        spread_avg = (average1 - average2)
+        spread_avg = abs(average1 - average2)
         curr1 = data[symbol1][-1]
         curr2 = data[symbol2][-1]
         spread_curr = (curr1 - curr2)
-
-        if spread_curr > spread_avg * 1.10:  # detect a wide spread
+        position_format = {'short': None, 'long': None, 'amount': pair[2]}
+        if spread_curr > spread_avg * wide_spread:  # detect a wide spread
             # short high, long low
-            pair_positions.append(tuple(symbol1, symbol2, symbol1))
+            if curr1/average1 > curr2/average2:  # stock 1 is higher out of balance, so short stock 1
+                position_format['short'] = symbol1
+                position_format['long'] = symbol2
+            else:
+                position_format['short'] = symbol2
+                position_format['long'] = symbol1
 
-        elif spread_curr < spread_avg * .90:  # detect a tight spread
+        elif spread_curr < spread_avg * tight_spread:  # detect a tight spread
             # short low, long high
-            pair_positions.append(tuple(symbol1, symbol2, symbol2))
-        else:
-            pair_positions.append(tuple(symbol1, symbol2, "None"))
+            if curr1 / average1 > curr2 / average2:
+                position_format['short'] = symbol2
+                position_format['long'] = symbol1
+            else:
+                position_format['short'] = symbol1
+                position_format['long'] = symbol2
+
+        else:  # no trade signal
+            position_format = {'no signal': [symbol1, symbol2], 'amount': pair[2]}
+
+        pair_positions.append(position_format)
 
     return pair_positions
 
@@ -130,6 +145,10 @@ def read_current_pairs_file():
                 line.remove("\n")
             # has a equity allocation
 
+            # stripping new line characters
+            line[0] = line[0].strip()
+            line[1] = line[1].strip()
+
             # check symbols for accuracy
             if line[1] not in symbols:
                 print(f"{line[1]} not found in ALPACA's list of tradable symbols")
@@ -174,15 +193,14 @@ def read_current_pairs_file():
     if total_decimal == 1.0:
         pass
     else:
-        remaining_allotment = 1.0 - total_decimal
+        # using .99 instead of 1.0 so that there isn't a change of overdrawing my account with orders
+        remaining_allotment = .99 - total_decimal
         default_allotment = round(remaining_allotment / pairs_without_allotment, 3)
         for i in range(len(pairs)):
             if len(pairs[i]) == 2:
                 pairs[i] = tuple([pairs[i][0], pairs[i][1], default_allotment])
 
-    # print(pairs)
     if all_correct:
-        print(pairs)
         return pairs
     else:
         print("Check the symbols found in current_pairs.txt")
@@ -202,7 +220,6 @@ def valid_input():
 
 if __name__ == "__main__":
     try:
-        print(sys.argv)
         if len(sys.argv) == 1:  # no args
             trade_pairs(read_current_pairs_file())
         elif sys.argv[1] == '-e':  # equity limit given
