@@ -51,10 +51,11 @@ class Poly:
         end_date = datetime.strptime(to_date, "%Y-%m-%d")
         print(f"Estimated time: {round((end_date - start_date).days * 1.7 / 30, 2)} seconds.")
         repeat = 1
+        days_change = 5
         # more than 5 days of minute data may be more than 5000 data points and polygon wont send more than that
-        if (end_date - start_date).days > 5:
-            repeat = (end_date - start_date).days // 5
-            mid_date = start_date + timedelta(days=5)
+        if (end_date - start_date).days > days_change:
+            repeat = (end_date - start_date).days // days_change
+            mid_date = start_date + timedelta(days=days_change)
         else:
             mid_date = end_date
 
@@ -78,7 +79,7 @@ class Poly:
 
                 # change range to request to polygon
                 start_date = mid_date + timedelta(days=1)  # avoid getting the same data
-                mid_date = start_date + timedelta(days=5)
+                mid_date = start_date + timedelta(days=days_change)
 
                 # edge cases
                 if mid_date > end_date:
