@@ -32,7 +32,7 @@ def label_data(data: pd.DataFrame) -> pd.DataFrame:
         decending = True
     else:
         # the data is in ascending order
-        pass
+        data = data[::-1]
 
     actions = np.zeros((data.axes[0].size,), dtype=int)
     index = 0
@@ -50,6 +50,10 @@ def label_data(data: pd.DataFrame) -> pd.DataFrame:
         index += 1
 
     data['action'] = actions
+    if not decending:
+        # flip the data frame back into the ascending order it came
+        return data[::-1]
+
     return data
 
 
@@ -69,9 +73,9 @@ test_data = {"c": baseprice, "t": []}
 for i in range(10):
     today = datetime.now()
     # decending order
-    # new_datetime = today - timedelta(minutes=i)
+    new_datetime = today - timedelta(minutes=i)
     # acending order
-    new_datetime = today + timedelta(minutes=i)
+    # new_datetime = today + timedelta(minutes=i)
 
     dt = new_datetime.isoformat()
     test_data['t'].append(dt)
