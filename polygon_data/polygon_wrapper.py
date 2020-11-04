@@ -53,6 +53,7 @@ class Poly:
         repeat = 1
         days_change = 5
         # more than 5 days of minute data may be more than 5000 data points and polygon wont send more than that
+        # so i need to break up the range in to bite sizes chunks then append them together locally
         if (end_date - start_date).days > days_change:
             repeat = (end_date - start_date).days // days_change
             mid_date = start_date + timedelta(days=days_change)
@@ -67,9 +68,9 @@ class Poly:
                                                          start_date.strftime("%Y-%m-%d"), mid_date.strftime("%Y-%m-%d"))
                 # resp.results is a list of dictionaries, with each dictionary representing a day
 
-                # changes 't' from miliseconds since 1970 to date
+                # changes 't' from miliseconds since 1970 to datetime in isoformat for clarity
                 for result in resp.results:
-                    result['t'] = datetime.fromtimestamp(result["t"] / 1000)
+                    result['t'] = datetime.fromtimestamp(result["t"] / 1000).isoformat()
 
                 temp_df = pd.DataFrame.from_dict(resp.results)
                 if df is None:
